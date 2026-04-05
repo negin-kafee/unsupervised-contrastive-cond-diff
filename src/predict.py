@@ -6,7 +6,10 @@ from pytorch_lightning import (
     seed_everything,
 )
 from omegaconf import DictConfig, OmegaConf, open_dict
-from pytorch_lightning.plugins import DDPPlugin
+try:
+    from pytorch_lightning.plugins import DDPPlugin
+except ImportError:
+    from pytorch_lightning.strategies import DDPStrategy as DDPPlugin
 import hydra
 from omegaconf import DictConfig
 from typing import List, Optional
@@ -15,7 +18,10 @@ import os
 import warnings
 import torch
 from src.utils import utils
-from pytorch_lightning.loggers import LightningLoggerBase
+try:
+    from pytorch_lightning.loggers import LightningLoggerBase
+except ImportError:
+    from pytorch_lightning.loggers import Logger as LightningLoggerBase
 import pickle
 
 os.environ['NUMEXPR_MAX_THREADS'] = '16'
@@ -144,8 +150,17 @@ def predict(cfg: DictConfig) -> Optional[float]:
         # logging
         log.info(f"Best checkpoint path:\n{trainer.checkpoint_callback.best_model_path}")
         log.info(f"Best checkpoint metric:\n{trainer.checkpoint_callback.best_model_score}")
-        trainer.logger.experiment[0].log({'best_ckpt_path':trainer.checkpoint_callback.best_model_path})
-        trainer.logger.experiment[0].log({'logdir':trainer.log_dir})
+        # Handle PL 2.x logger.experiment compatibility
+        try:
+            exp = trainer.logger.experiment
+            if isinstance(exp, list):
+                exp[0].log({'best_ckpt_path':trainer.checkpoint_callback.best_model_path})
+                exp[0].log({'logdir':trainer.log_dir})
+            else:
+                exp.log({'best_ckpt_path':trainer.checkpoint_callback.best_model_path})
+                exp.log({'logdir':trainer.log_dir})
+        except Exception as e:
+            log.warning(f"Could not log to experiment: {e}")
 
         # metrics
         validation_metrics = trainer.callback_metrics
@@ -162,12 +177,14 @@ def predict(cfg: DictConfig) -> Optional[float]:
         if cfg.get("test_after_training"): # and not 'simclr' in  cfg.model._target_.lower():
             log.info(f"Starting evaluation phase of fold {fold+1}!")        
             sets = {
-                    't2':['Datamodules_eval.NOVA', 'Datamodules_eval.Brats21','Datamodules_eval.MSLUB','Datamodules_train.IXI'],
+                    't1':['Datamodules_eval.NOVA', 'Datamodules_eval.Brats21','Datamodules_eval.Brats20','Datamodules_eval.Brats20_T1','Datamodules_eval.MSLUB','Datamodules_train.IXI','Datamodules_train.MOOD_IXI'],
+                    't2':['Datamodules_eval.NOVA', 'Datamodules_eval.Brats21','Datamodules_eval.Brats20','Datamodules_eval.Brats20_T2','Datamodules_eval.MSLUB','Datamodules_train.IXI','Datamodules_train.MOOD_IXI'],
+                    't1t2':['Datamodules_eval.NOVA', 'Datamodules_eval.Brats21','Datamodules_eval.Brats20','Datamodules_eval.Brats20_T1','Datamodules_eval.Brats20_T2','Datamodules_eval.MSLUB','Datamodules_train.IXI','Datamodules_train.MOOD_IXI'],
                    }
             
                 
             for set in cfg.datamodule.cfg.testsets :
-                if not set in sets[cfg.datamodule.cfg.mode]: # skip testsets of different modalities
+                if cfg.datamodule.cfg.mode not in sets or set not in sets[cfg.datamodule.cfg.mode]: # skip testsets of different modalities
                     continue    
 
                 cfg.datamodule._target_ = 'src.datamodules.{}'.format(set)

@@ -1,7 +1,7 @@
 import logging
 import os
 import warnings
-from typing import List, Sequence
+from typing import List, Sequence, Union
 import numpy as np
 import pytorch_lightning as pl
 import rich.syntax
@@ -9,6 +9,12 @@ import rich.tree
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.utilities import rank_zero_only
 import yaml 
+
+# Handle PyTorch Lightning version compatibility
+try:
+    from pytorch_lightning.loggers import LightningLoggerBase
+except ImportError:
+    from pytorch_lightning.loggers import Logger as LightningLoggerBase
 
 def get_logger(name=__name__, level=logging.INFO) -> logging.Logger:
     """Initializes multi-GPU-friendly python logger."""
@@ -115,7 +121,7 @@ def log_hyperparameters(
     datamodule: pl.LightningDataModule,
     trainer: pl.Trainer,
     callbacks: List[pl.Callback],
-    logger: List[pl.loggers.LightningLoggerBase],
+    logger: List[LightningLoggerBase],
 ) -> None:
     """This method controls which parameters from Hydra config are saved by Lightning loggers.
     Additionaly saves:
@@ -125,14 +131,15 @@ def log_hyperparameters(
     hparams = {}
 
     # choose which parts of hydra config will be saved to loggers
-    hparams["trainer"] = config["trainer"]
-    hparams["model"] = config["model"]
-    hparams["datamodule"] = config["datamodule"]
+    # Convert DictConfig to primitive types to avoid serialization issues
+    hparams["trainer"] = OmegaConf.to_container(config["trainer"], resolve=True) if isinstance(config["trainer"], DictConfig) else config["trainer"]
+    hparams["model"] = OmegaConf.to_container(config["model"], resolve=True) if isinstance(config["model"], DictConfig) else config["model"]
+    hparams["datamodule"] = OmegaConf.to_container(config["datamodule"], resolve=True) if isinstance(config["datamodule"], DictConfig) else config["datamodule"]
 
     if "seed" in config:
         hparams["seed"] = config["seed"]
     if "callbacks" in config:
-        hparams["callbacks"] = config["callbacks"]
+        hparams["callbacks"] = OmegaConf.to_container(config["callbacks"], resolve=True) if isinstance(config["callbacks"], DictConfig) else config["callbacks"]
 
     # save number of model parameters
     hparams["model/params_total"] = sum(p.numel() for p in model.parameters())
@@ -142,7 +149,18 @@ def log_hyperparameters(
     hparams["model/params_not_trainable"] = sum(
         p.numel() for p in model.parameters() if not p.requires_grad
     )
-    hparams['run_id'] = trainer.logger.experiment[0].id
+    # Handle both single logger and list of loggers (PL 2.x compatibility)
+    try:
+        if hasattr(trainer.logger, 'experiment'):
+            exp = trainer.logger.experiment
+            if isinstance(exp, list):
+                hparams['run_id'] = exp[0].id if hasattr(exp[0], 'id') else str(exp[0])
+            elif hasattr(exp, 'id'):
+                hparams['run_id'] = exp.id
+            else:
+                hparams['run_id'] = str(exp)
+    except Exception:
+        hparams['run_id'] = 'unknown'
     # send hparams to all loggers
     trainer.logger.log_hyperparams(hparams)
 
@@ -151,14 +169,13 @@ def log_hyperparameters(
     # since we already did that above
     trainer.logger.log_hyperparams = empty
 
-
 def finish(
     config: DictConfig,
     model: pl.LightningModule,
     datamodule: pl.LightningDataModule,
     trainer: pl.Trainer,
     callbacks: List[pl.Callback],
-    logger: List[pl.loggers.LightningLoggerBase],
+    logger: List[LightningLoggerBase],
 ) -> None:
     """Makes sure everything closed properly."""
 
@@ -214,10 +231,10 @@ def get_checkpoint(cfg, path):
     checkpoint_to_load = cfg.get("checkpoint",'last') # default to last.ckpt 
     all_checkpoints = os.listdir(checkpoint_path + '/checkpoints')
     hparams = get_yaml(path+'/csv//hparams.yaml')
-    wandbID = hparams['run_id']
+    wandbID = hparams.get('run_id', None)  # Handle missing run_id gracefully
     checkpoints = {}
     for fold in range(cfg.get('num_folds',1)):
-        checkpoints[f'fold-{fold+1+cfg.get("start_fold")}'] = [] # dict to store the checkpoints with their path for different folds
+        checkpoints[f'fold-{fold+1+cfg.get("start_fold", 0)}'] = [] # dict to store the checkpoints with their path for different folds
 
     if checkpoint_to_load == 'last':
         matching_checkpoints = [c for c in all_checkpoints if "last" in c]

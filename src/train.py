@@ -6,7 +6,10 @@ from pytorch_lightning import (
     seed_everything,
 )
 from omegaconf import DictConfig, OmegaConf, open_dict
-from pytorch_lightning.plugins import DDPPlugin
+try:
+    from pytorch_lightning.plugins import DDPPlugin
+except ImportError:
+    from pytorch_lightning.strategies import DDPStrategy as DDPPlugin
 import hydra
 from omegaconf import DictConfig
 from typing import List, Optional
@@ -15,7 +18,10 @@ import os
 import warnings
 import torch
 from src.utils import utils
-from pytorch_lightning.loggers import LightningLoggerBase
+try:
+    from pytorch_lightning.loggers import LightningLoggerBase
+except ImportError:
+    from pytorch_lightning.loggers import Logger as LightningLoggerBase
 import pickle
 
 os.environ['NUMEXPR_MAX_THREADS'] = '16'
@@ -58,8 +64,9 @@ def train(cfg: DictConfig) -> Optional[float]:
         seed_everything(cfg.seed, workers=True)
 
     # get start and end fold
-    start_fold = cfg.get('start_fold',0)
-    end_fold = cfg.get('num_folds',5) if cfg.get('num_folds') == 5 else cfg.get('start_fold') + 1
+    start_fold = cfg.get('start_fold', 0)
+    num_folds = cfg.get('num_folds', 5)
+    end_fold = num_folds if num_folds == 5 else start_fold + 1
     if start_fold != 0:
         log.info(f'skipping the first {start_fold} fold(s)') 
 
@@ -70,7 +77,7 @@ def train(cfg: DictConfig) -> Optional[float]:
         prefix = f'{fold+1}/' # naming of logs
 
 
-        cfg.datamodule._target_ = f'src.datamodules.Datamodules_train.{cfg.datamodule.cfg.name}' # set datamodule target
+        # cfg.datamodule._target_ = f'src.datamodules.Datamodules_train.{cfg.datamodule.cfg.name}' # set datamodule target - DISABLED: use _target_ from config
         log.info(f"Instantiating datamodule <{cfg.datamodule._target_}>") 
         datamodule_train: LightningDataModule = hydra.utils.instantiate(cfg.datamodule,fold=fold) # instantiate datamodule
 
@@ -111,11 +118,10 @@ def train(cfg: DictConfig) -> Optional[float]:
                     logger.append(hydra.utils.instantiate(lg_conf))
 
         # Load checkpoint if specified
+        ckpt_path_to_load = None
         if cfg.get('load_checkpoint') and (cfg.get('onlyEval',False) or cfg.get('resume_train',False) ): # pass checkpoint to resume from
-            with open_dict(cfg):
-                cfg.trainer.resume_from_checkpoint = checkpoints[f"fold-{fold+1}"]
-                cfg.ckpt_path=None
-            log.info(f"Restoring Trainer State of loaded checkpoint: ",cfg.trainer.resume_from_checkpoint)
+            ckpt_path_to_load = checkpoints[f"fold-{fold+1}"]
+            log.info(f"Will load checkpoint: {ckpt_path_to_load}")
 
         # Init lightning trainer
         log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
@@ -136,16 +142,28 @@ def train(cfg: DictConfig) -> Optional[float]:
 
 
         if (not cfg.get('onlyEval',False) or cfg.get('resume_train',False)) : # train model
-            trainer.fit(model, datamodule_train)
+            trainer.fit(model, datamodule_train, ckpt_path=ckpt_path_to_load)
             validation_metrics = trainer.callback_metrics
         else: # load trained model
-            model.load_state_dict(torch.load(checkpoints[f'fold-{fold+1}'])['state_dict'])
+            ckpt_to_load = ckpt_path_to_load if ckpt_path_to_load else checkpoints.get(f'fold-{fold+1}')
+            if ckpt_to_load:
+                log.info(f"Loading model state from: {ckpt_to_load}")
+                model.load_state_dict(torch.load(ckpt_to_load)['state_dict'])
 
         # logging
         log.info(f"Best checkpoint path:\n{trainer.checkpoint_callback.best_model_path}")
         log.info(f"Best checkpoint metric:\n{trainer.checkpoint_callback.best_model_score}")
-        trainer.logger.experiment[0].log({'best_ckpt_path':trainer.checkpoint_callback.best_model_path})
-        trainer.logger.experiment[0].log({'logdir':trainer.log_dir})
+        # Handle PL 2.x logger.experiment compatibility
+        try:
+            exp = trainer.logger.experiment
+            if isinstance(exp, list):
+                exp[0].log({'best_ckpt_path':trainer.checkpoint_callback.best_model_path})
+                exp[0].log({'logdir':trainer.log_dir})
+            else:
+                exp.log({'best_ckpt_path':trainer.checkpoint_callback.best_model_path})
+                exp.log({'logdir':trainer.log_dir})
+        except Exception as e:
+            log.warning(f"Could not log to experiment: {e}")
 
         # metrics
         validation_metrics = trainer.callback_metrics
@@ -165,12 +183,12 @@ def train(cfg: DictConfig) -> Optional[float]:
             preds_dict = {'val':{},'test':{}} # a dict for each data set
             
             sets = {
-                    't2':['Datamodules_eval.Brats21','Datamodules_eval.MSLUB','Datamodules_train.IXI'],
-                   }
-            
-                
+                    't1':['Datamodules_eval.Brats21','Datamodules_eval.Brats20','Datamodules_eval.Brats20_T1','Datamodules_eval.Brats20_T2','Datamodules_eval.Brats20_T1_seg','Datamodules_eval.Brats20_T2_seg','Datamodules_eval.Brats20_T1_H5_seg','Datamodules_eval.Brats20_T2_H5_seg','Datamodules_eval.MSLUB','Datamodules_train.IXI','Datamodules_train.MOOD_IXI'],
+                    't2':['Datamodules_eval.Brats21','Datamodules_eval.Brats20','Datamodules_eval.Brats20_T2','Datamodules_eval.Brats20_T2_seg','Datamodules_eval.Brats20_T2_H5_seg','Datamodules_eval.MSLUB','Datamodules_train.IXI','Datamodules_train.MOOD_IXI'],
+                    't1t2':['Datamodules_eval.Brats21','Datamodules_eval.Brats20','Datamodules_eval.Brats20_T1','Datamodules_eval.Brats20_T2','Datamodules_eval.Brats20_T1_seg','Datamodules_eval.Brats20_T2_seg','Datamodules_eval.Brats20_T1_H5_seg','Datamodules_eval.Brats20_T2_H5_seg','Datamodules_eval.MSLUB','Datamodules_train.IXI','Datamodules_train.MOOD_IXI'],
+                    }                
             for set in cfg.datamodule.cfg.testsets :
-                if not set in sets[cfg.datamodule.cfg.mode]: # skip testsets of different modalities
+                if cfg.datamodule.cfg.mode not in sets or set not in sets[cfg.datamodule.cfg.mode]: # skip testsets of different modalities
                     continue    
 
                 cfg.datamodule._target_ = 'src.datamodules.{}'.format(set)
@@ -181,12 +199,14 @@ def train(cfg: DictConfig) -> Optional[float]:
                 # Validation steps
                 log.info("Validation of {}!".format(set))
 
-                ckpt_path=cfg.get('ckpt_path',None)
+                # When we've already loaded the model state (onlyEval=True), don't pass ckpt_path
+                # as the model is already loaded. This avoids PL 2.x "best" checkpoint issues.
+                eval_ckpt_path = None if cfg.get('onlyEval', False) else cfg.get('ckpt_path', None)
 
                 if 'train' in set:
-                    trainer.test(model=model,dataloaders=datamodule.val_eval_dataloader(),ckpt_path=ckpt_path)
+                    trainer.test(model=model,dataloaders=datamodule.val_eval_dataloader(),ckpt_path=eval_ckpt_path)
                 else: 
-                    trainer.test(model=model,dataloaders=datamodule.val_dataloader(),ckpt_path=ckpt_path)
+                    trainer.test(model=model,dataloaders=datamodule.val_dataloader(),ckpt_path=eval_ckpt_path)
                 # evaluation results
                 preds_dict['val'][set] = trainer.lightning_module.eval_dict
                 log_dict = utils.summarize(preds_dict['val'][set],'val') # sets prefix val/ and removes lists for better logging in wandb
@@ -194,15 +214,23 @@ def train(cfg: DictConfig) -> Optional[float]:
                 # Test steps
                 log.info("Test of {}!".format(set))
                 if 'train' in set:
-                    trainer.test(model=model,dataloaders=datamodule.test_eval_dataloader(),ckpt_path=ckpt_path)
+                    trainer.test(model=model,dataloaders=datamodule.test_eval_dataloader(),ckpt_path=eval_ckpt_path)
                 else: 
-                    trainer.test(model=model,dataloaders=datamodule.test_dataloader(),ckpt_path=ckpt_path)
+                    trainer.test(model=model,dataloaders=datamodule.test_dataloader(),ckpt_path=eval_ckpt_path)
 
                 # log to wandb
                 preds_dict['test'][set] = trainer.lightning_module.eval_dict
                 log_dict.update(utils.summarize(preds_dict['test'][set],'test')) # sets prefix test/ and removes lists for better logging in wandb
                 log_dict = utils.summarize(log_dict,f'{fold+1}/'+set) # sets prefix for each data set
-                trainer.logger.experiment[0].log(log_dict)
+                # Handle PL 2.x logger.experiment compatibility
+                try:
+                    exp = trainer.logger.experiment
+                    if isinstance(exp, list):
+                        exp[0].log(log_dict)
+                    else:
+                        exp.log(log_dict)
+                except Exception as e:
+                    log.warning(f"Could not log evaluation results to experiment: {e}")
 
                 
 

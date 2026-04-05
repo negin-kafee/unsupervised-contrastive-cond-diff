@@ -2,7 +2,8 @@
 
 wandb:
   _target_: pytorch_lightning.loggers.wandb.WandbLogger
-  project: "UAD Contrastive-Guided Diffusion Models"
+  project: "contrastive_DDPM"
+  entity: "your-wandb-entity"  # Update with your W&B entity
   name:  ${hydra:job.name}
   save_dir: "."
   offline: False # set True to store all logs only locally
@@ -12,5 +13,4 @@ wandb:
   prefix: ""
   job_type: ""
   group: ""
-  tags: []
-  # note: ""
+  tags: ["UAD", "contrastive_diffusion"]

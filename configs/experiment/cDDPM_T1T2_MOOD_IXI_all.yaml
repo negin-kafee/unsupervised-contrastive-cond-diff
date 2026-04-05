@@ -1,0 +1,47 @@
+# @package _global_
+# Conditional DDPM for T1T2_MOOD_IXI_all
+
+defaults:
+  - override /trainer: default.yaml
+  - override /model: DDPM_2D.yaml
+  - override /datamodule: T1T2_MOOD_IXI_all.yaml
+
+datamodule:
+  cfg:
+    rescaleFactor: 2
+    imageDim: [192,192,100]
+    mode: t1t2
+    aug_intensity: True
+
+model:
+  cfg: 
+    test_timesteps: 500
+    dim_mults: [1,2,2]
+    unet_dim: 128
+    backbone: Spark_Encoder_2D
+    version: resnet50
+    cond_dim: 128
+    OpenaiUnet: True
+    spatial_transformer: False
+    condition: True
+    noisetype: simplex
+    encoder_path: ${log_dir}/logs/runs/Encoder_T1T2_MOOD_IXI_all  # Update with your encoder run path
+    pretrained_encoder: True
+    save_to_disc: False
+    noise_ensemble: True
+    encoder_mode: default
+    ckpt_path: best
+    num_folds: 1
+
+num_folds: 1
+logger:
+  wandb:
+    project: unsupervised-contrastive-cond-diff
+
+ckpt_path: best
+
+trainer:
+  max_epochs: 1200
+
+name: cDDPM_T1T2_MOOD_IXI_all
+seed: 3141

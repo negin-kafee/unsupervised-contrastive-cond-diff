@@ -1,0 +1,77 @@
+# FSL_IXI_all_T2 - FSL FAST segmented IXI 3T + IXI 1.5T T2 combined
+_target_: src.datamodules.Datamodules_train.IXI
+
+cfg:
+  name: FSL_IXI_all_T2
+  path:
+    pathBase: ${data_dir}
+
+    IXI:
+      IDs: 
+        train: 
+          - ${data_dir}/Data/splits/IXI_3T_15T_T2_seg_train_fold0.csv
+        val: 
+          - ${data_dir}/Data/splits/IXI_3T_15T_T2_seg_val_fold0.csv
+        test: ${data_dir}/Data/splits/IXI_3T_15T_T2_seg_test.csv
+      keep_t2: null
+
+    Brats21:
+      IDs: 
+        test: ${data_dir}/Data/splits/Brats21_test.csv
+        val: ${data_dir}/Data/splits/Brats21_val.csv
+
+    Brats20_T2:
+      IDs: 
+        test: ${data_dir}/Data/splits/BraTS_T2_test.csv
+        val: ${data_dir}/Data/splits/BraTS_T2_val.csv
+
+    Brats20_T2_seg:
+      IDs: 
+        test: ${data_dir}/Data/splits/BraTS_T2_seg_test.csv
+        val: ${data_dir}/Data/splits/BraTS_T2_seg_val.csv
+
+    Brats20_T2_H5_seg:
+      h5_img: ${data_dir}/Data/h5/brats_t2_fast.h5
+      h5_seg: ${data_dir}/Data/h5/brats_tumor_gt.h5
+
+    MSLUB:
+      IDs: 
+        test: ${data_dir}/Data/splits/MSLUB_test.csv
+        val: ${data_dir}/Data/splits/MSLUB_val.csv
+
+  imageDim: [160,192,160] 
+  rescaleFactor: 2
+  interRes: [8,8,5]
+  cropMode: 'isotropic'
+  spatialDims: ${model.cfg.spatialDims}
+  unisotropic_sampling: True
+  sample_set: False
+
+  preLoad: True
+  curvatureFlow: True
+  percentile: True
+  pad: True
+  permute: False
+
+  randomRotate: False
+  rotateDegree: 5
+  horizontalFlip: False
+  randomBrightness: False
+  brightnessRange: (0.75,1.25)
+  randomContrast: False
+  contrastRange: (0.75,1.25)
+  
+  modelpath: ${data_dir}/Data/pretrained_2D_model/
+  num_workers: 4
+  batch_size: 32
+  lr : 0.0001
+  droplast: True
+  encoder_mode: end2end
+  re_prob: 0.7
+  encoder_model: contrastive
+
+  mode: t2
+  resizedEvaluation: True
+  testsets:
+  - Datamodules_train.IXI
+  - Datamodules_eval.Brats20_T2_H5_seg

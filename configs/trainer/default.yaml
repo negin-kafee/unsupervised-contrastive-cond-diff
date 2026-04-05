@@ -1,13 +1,15 @@
 _target_: pytorch_lightning.Trainer
 
-gpus: -1 # Specify GPU by CUDA_VISIBLE_DEVICES=0
+# PyTorch Lightning 2.x compatible settings
+devices: auto  # Use all available GPUs (replaces gpus: -1)
 accelerator: auto
 min_epochs: 1
 max_epochs: 800
 log_every_n_steps: 5
-precision : 16
-num_sanity_val_steps : 0 # This does not work with dp, only with ddp
-check_val_every_n_epoch : 1
+precision: 16-mixed  # Mixed precision (replaces precision: 16)
+num_sanity_val_steps: 0 # This does not work with dp, only with ddp
+check_val_every_n_epoch: 1
 benchmark: True
 overfit_batches: False
+
 

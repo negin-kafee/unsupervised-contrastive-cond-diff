@@ -683,7 +683,15 @@ def log_images(self, diff_volume, data_orig, data_seg, data_mask, final_volume, 
         
         if self.cfg.get('save_to_disc',True):
             plt.savefig(os.path.join(ImagePathList['imagesGrid'], '{}_{}_Grid.png'.format(ID[0],j)),bbox_inches='tight')
-        self.logger.experiment[0].log({'images/{}/{}_Grid.png'.format(self.dataset[0],j) : wandb.Image(plt)})
+        # Handle PL 2.x logger.experiment compatibility
+        try:
+            exp = self.logger.experiment
+            if isinstance(exp, list):
+                exp[0].log({'images/{}/{}_Grid.png'.format(self.dataset[0],j) : wandb.Image(plt)})
+            else:
+                exp.log({'images/{}/{}_Grid.png'.format(self.dataset[0],j) : wandb.Image(plt)})
+        except Exception as e:
+            pass  # Silently skip if logging fails
         plt.clf()
         plt.cla()
         plt.close()

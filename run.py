@@ -10,7 +10,7 @@ sys.setrecursionlimit(2000)
 # load environment variables from `.env` file if it exists
 # recursively searches for `.env` in all folders starting from work dir
 dir_path = os.path.dirname(os.path.realpath(__file__))
-dotenv.load_dotenv(dir_path+'/pc_environment.env',override=True)
+dotenv.load_dotenv(dir_path+'/pc_environment.env',override=False)  # override=False allows env vars to take precedence
 # dotenv.dotenv_values("pc_environment.env")
 
 

@@ -1,0 +1,36 @@
+# @package _global_
+# FSL_MOOD_IXI_all Encoder - FSL FAST segmented MOOD 3T T1 + IXI all T1/T2
+
+defaults:
+  - override /trainer: default.yaml
+  - override /model: Spark_2D.yaml
+  - override /datamodule: FSL_MOOD_IXI_all.yaml
+
+datamodule:
+  cfg:
+    rescaleFactor: 2
+    imageDim: [192,192,100]
+    mode: t1t2
+
+model:
+  cfg: 
+    backbone: resnet50
+    loss_on_mask: True
+    mask_ratio: 0.65
+    encoder_mode: end2end
+    epsilon: 0.5
+    temp: 0.07
+
+num_folds: 1
+logger:
+  wandb:
+    project: unsupervised-contrastive-cond-diff
+
+ckpt_path: best 
+
+trainer:
+  max_epochs: 1200
+
+name: Encoder_FSL_MOOD_IXI_all
+seed: 3141
+test_after_training: False

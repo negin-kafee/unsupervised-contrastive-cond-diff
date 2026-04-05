@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.nbc
+*.nbi
+
+# Environment
+*.env
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Weights & Biases
+wandb/
+
+# Cluster-specific files
+slurm/
+
+# Personal documentation / experiment notes
+DOCUMENTATION.md
+EXPERIMENT_RESULTS.md
+FSL_vs_BASELINE_ANALYSIS.md

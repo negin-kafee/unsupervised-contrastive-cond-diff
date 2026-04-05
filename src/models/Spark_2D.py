@@ -4,7 +4,10 @@ import torch
 import torch.nn.functional as F
 from src.utils.utils_eval import _test_step, _test_end, get_eval_dictionary
 import numpy as np
-from pytorch_lightning.core.lightning import LightningModule
+try:
+    from pytorch_lightning.core.lightning import LightningModule
+except ImportError:
+    from pytorch_lightning import LightningModule
 import torch.optim as optim
 from typing import Any
 import torchio as tio
@@ -13,9 +16,10 @@ from src.models.modules.contrastive.losses import EpsInfoNCE
 
 
 class Spark_2D(LightningModule):
-    def __init__(self,cfg,prefix=None):
+    def __init__(self,cfg,prefix=None,fold=None):
         super().__init__()
         self.cfg = cfg
+        self.fold = fold
         # Model 
         self.model = SparK_2D(cfg)
         self.L1 = L1_AE(cfg)

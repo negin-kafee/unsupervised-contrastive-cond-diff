@@ -13,6 +13,7 @@ import pandas as pd
 import os
 from PIL import Image
 import ast
+import h5py
 
 def Train(csv,cfg,preload=True):
     subjects = []
@@ -80,6 +81,85 @@ def Eval(csv,cfg):
         subjects.append(subject)
     ds = tio.SubjectsDataset(subjects, transform = get_transform(cfg))
     return ds
+
+class H5EvalDataset(Dataset):
+    """
+    Lazy-loading dataset for H5 files containing FSL FAST segmented images.
+    Loads data on-demand to avoid memory issues with large datasets.
+    """
+    
+    def __init__(self, h5_img_path, h5_seg_path, cfg, settype='test', setname='Brats20_H5'):
+        self.h5_img_path = h5_img_path
+        self.h5_seg_path = h5_seg_path
+        self.cfg = cfg
+        self.settype = settype
+        self.setname = setname
+        self.transform = get_transform(cfg)
+        
+        # Get list of keys from H5 file
+        with h5py.File(h5_img_path, 'r') as h5_img:
+            self.keys = sorted(h5_img.keys())
+    
+    def __len__(self):
+        return len(self.keys)
+    
+    def __getitem__(self, index):
+        key = self.keys[index]
+        
+        # Load data from H5 files
+        with h5py.File(self.h5_img_path, 'r') as h5_img, h5py.File(self.h5_seg_path, 'r') as h5_seg:
+            img_data = h5_img[key][:]  # Shape: (H, W, D)
+            seg_data = h5_seg[key][:]  # Shape: (H, W, D)
+        
+        # Convert to torch tensors with channel dimension: (1, H, W, D)
+        img_tensor = torch.from_numpy(img_data).float().unsqueeze(0)
+        seg_tensor = torch.from_numpy(seg_data).float().unsqueeze(0)
+        
+        # Create mask from image (non-zero values)
+        mask_tensor = (img_tensor > 0).float()
+        
+        subject_dict = {
+            'vol': tio.ScalarImage(tensor=img_tensor),
+            'vol_orig': tio.ScalarImage(tensor=img_tensor.clone()),
+            'age': 0,  # Not available in H5
+            'ID': f'{self.setname}_{key}',
+            'label': 1,  # All BraTS subjects have anomalies
+            'Dataset': self.setname,
+            'stage': self.settype,
+            'seg_available': True,
+            'path': f'{self.h5_img_path}:{key}',
+            'seg': tio.LabelMap(tensor=seg_tensor),
+            'seg_orig': tio.LabelMap(tensor=seg_tensor.clone()),
+            'mask': tio.LabelMap(tensor=mask_tensor),
+            'mask_orig': tio.LabelMap(tensor=mask_tensor.clone()),
+        }
+        
+        subject = tio.Subject(subject_dict)
+        
+        # Apply transform
+        if self.transform:
+            subject = self.transform(subject)
+        
+        return subject
+
+
+def EvalH5(h5_img_path, h5_seg_path, cfg, settype='test', setname='Brats20_H5'):
+    """
+    Create evaluation dataset from H5 files containing FSL FAST segmented images.
+    Uses lazy loading to avoid memory issues.
+    
+    Args:
+        h5_img_path: Path to H5 file containing FSL FAST segmented images (values 0-3)
+        h5_seg_path: Path to H5 file containing tumor ground truth masks (values 0-1)
+        cfg: Configuration object
+        settype: 'val' or 'test'
+        setname: Dataset name for logging
+    
+    Returns:
+        H5EvalDataset for evaluation
+    """
+    return H5EvalDataset(h5_img_path, h5_seg_path, cfg, settype, setname)
+
 ## got it from https://discuss.pytorch.org/t/best-practice-to-cache-the-entire-dataset-during-first-epoch/19608/12
 class DatasetCache(object):
     def __init__(self, manager, use_cache=True):
